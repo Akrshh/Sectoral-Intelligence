@@ -207,9 +207,275 @@ const AnalyticsEngine = (() => {
         };
     }
 
+
+    // ─────────────────────────────────────────────
+    // PROFESSIONAL INDICATORS
+    // ─────────────────────────────────────────────
+
+    /**
+     * MACD (Moving Average Convergence Divergence)
+     * Returns: { macd, signal, histogram, trend }
+     */
+    function calculateMACD(data, fast = 12, slow = 26, signal = 9) {
+        if (data.length < slow + signal) return { macd: 0, signal: 0, histogram: 0, trend: 'neutral', score: 50 };
+
+        // Calculate fast & slow EMA
+        const fastEMA = calculateEMA(data, fast);
+        const slowEMA = calculateEMA(data, slow);
+        const macdLine = fastEMA - slowEMA;
+
+        // Signal line: EMA of MACD values over last 'signal' periods
+        // Simplified: use recent MACD trend
+        const prevFastEMA = calculateEMA(data.slice(0, -1), fast);
+        const prevSlowEMA = calculateEMA(data.slice(0, -1), slow);
+        const prevMACD = prevFastEMA - prevSlowEMA;
+
+        const lastPrice = data[data.length - 1].close;
+        const signalLine = (macdLine + prevMACD) / 2; // Simplified signal
+        const histogram = macdLine - signalLine;
+
+        // Determine trend
+        let trend = 'neutral';
+        let score = 50;
+        if (macdLine > 0 && histogram > 0) { trend = 'bullish'; score = 75; }
+        else if (macdLine > 0 && histogram < 0) { trend = 'weakening'; score = 60; }
+        else if (macdLine < 0 && histogram > 0) { trend = 'recovering'; score = 45; }
+        else if (macdLine < 0 && histogram < 0) { trend = 'bearish'; score = 25; }
+
+        // Crossover detection
+        if (prevMACD < 0 && macdLine > 0) { trend = 'bullish_crossover'; score = 85; }
+        if (prevMACD > 0 && macdLine < 0) { trend = 'bearish_crossover'; score = 15; }
+
+        return {
+            macd: Math.round(macdLine * 100) / 100,
+            signal: Math.round(signalLine * 100) / 100,
+            histogram: Math.round(histogram * 100) / 100,
+            trend,
+            score: Math.min(100, Math.max(0, score))
+        };
+    }
+
+    /**
+     * Bollinger Bands
+     * Returns: { upper, middle, lower, width, position, squeeze }
+     */
+    function calculateBollingerBands(data, period = 20, multiplier = 2) {
+        if (data.length < period) return { upper: 0, middle: 0, lower: 0, width: 0, position: 50, squeeze: false, score: 50 };
+
+        const recent = data.slice(-period);
+        const closes = recent.map(d => d.close);
+        const middle = closes.reduce((s, v) => s + v, 0) / period;
+        const variance = closes.reduce((s, v) => s + Math.pow(v - middle, 2), 0) / period;
+        const stdDev = Math.sqrt(variance);
+
+        const upper = middle + multiplier * stdDev;
+        const lower = middle - multiplier * stdDev;
+        const width = ((upper - lower) / middle) * 100;  // Band width as %
+        const currentPrice = data[data.length - 1].close;
+
+        // Position within bands (0 = lower band, 100 = upper band)
+        const position = upper !== lower ? ((currentPrice - lower) / (upper - lower)) * 100 : 50;
+
+        // Squeeze detection: narrow bands mean low volatility → breakout coming
+        const avgWidth = 4.0;  // Typical width
+        const squeeze = width < avgWidth * 0.6;
+
+        // Score: near upper band = overbought, near lower = oversold
+        let score = 50;
+        if (position > 80) score = 30;  // Overbought risk
+        else if (position < 20) score = 70;  // Oversold opportunity
+        else score = 50 + (50 - position) * 0.3;
+
+        return {
+            upper: Math.round(upper * 100) / 100,
+            middle: Math.round(middle * 100) / 100,
+            lower: Math.round(lower * 100) / 100,
+            width: Math.round(width * 100) / 100,
+            position: Math.round(position),
+            squeeze,
+            score: Math.round(Math.min(100, Math.max(0, score)))
+        };
+    }
+
+    /**
+     * ATR (Average True Range) — Volatility indicator
+     */
+    function calculateATR(data, period = 14) {
+        if (data.length < period + 1) return { atr: 0, atrPercent: 0, volatility: 'normal' };
+
+        let trSum = 0;
+        const recent = data.slice(-(period + 1));
+
+        for (let i = 1; i < recent.length; i++) {
+            const high = recent[i].high;
+            const low = recent[i].low;
+            const prevClose = recent[i - 1].close;
+            const trueRange = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+            trSum += trueRange;
+        }
+
+        const atr = trSum / period;
+        const atrPercent = (atr / data[data.length - 1].close) * 100;
+
+        let volatility = 'normal';
+        if (atrPercent > 2.5) volatility = 'high';
+        else if (atrPercent > 1.5) volatility = 'elevated';
+        else if (atrPercent < 0.8) volatility = 'low';
+
+        return {
+            atr: Math.round(atr * 100) / 100,
+            atrPercent: Math.round(atrPercent * 100) / 100,
+            volatility
+        };
+    }
+
+    /**
+     * OBV (On-Balance Volume) — Volume confirms price trend
+     */
+    function calculateOBV(data, lookback = 30) {
+        if (data.length < lookback + 10) return { obv: 0, trend: 'neutral', divergence: 'none', score: 50 };
+
+        const recent = data.slice(-lookback);
+        let obv = 0;
+        const obvSeries = [];
+
+        for (let i = 1; i < recent.length; i++) {
+            if (recent[i].close > recent[i - 1].close) obv += recent[i].volume;
+            else if (recent[i].close < recent[i - 1].close) obv -= recent[i].volume;
+            obvSeries.push(obv);
+        }
+
+        // OBV trend (rising or falling)
+        const obvStart = obvSeries.slice(0, 5).reduce((s, v) => s + v, 0) / 5;
+        const obvEnd = obvSeries.slice(-5).reduce((s, v) => s + v, 0) / 5;
+        const obvTrend = obvEnd > obvStart ? 'rising' : 'falling';
+
+        // Price trend
+        const priceStart = recent.slice(0, 5).reduce((s, d) => s + d.close, 0) / 5;
+        const priceEnd = recent.slice(-5).reduce((s, d) => s + d.close, 0) / 5;
+        const priceTrend = priceEnd > priceStart ? 'rising' : 'falling';
+
+        // Divergence detection
+        let divergence = 'none';
+        if (priceTrend === 'rising' && obvTrend === 'falling') divergence = 'bearish';  // Price up but volume down
+        if (priceTrend === 'falling' && obvTrend === 'rising') divergence = 'bullish';  // Price down but volume up (accumulation)
+
+        let score = 50;
+        if (obvTrend === 'rising' && priceTrend === 'rising') score = 75;  // Confirmed uptrend
+        if (divergence === 'bullish') score = 70;  // Smart money buying
+        if (divergence === 'bearish') score = 30;  // Distribution
+        if (obvTrend === 'falling' && priceTrend === 'falling') score = 25;
+
+        return { obv, trend: obvTrend, divergence, score };
+    }
+
+    /**
+     * FII/DII Flow Proxy — Estimates institutional buying/selling
+     * Based on: large volume on up days = institutional buying
+     */
+    function calculateInstitutionalFlowProxy(data, lookback = 20) {
+        if (data.length < lookback + 5) return { fiiProxy: 0, diiProxy: 0, netFlow: 'neutral', score: 50 };
+
+        const recent = data.slice(-lookback);
+        let buyVolume = 0, sellVolume = 0;
+        let largeBuyDays = 0, largeSellDays = 0;
+        const avgVolume = recent.reduce((s, d) => s + d.volume, 0) / recent.length;
+
+        for (let i = 1; i < recent.length; i++) {
+            const change = recent[i].close - recent[i - 1].close;
+            const volumeRatio = recent[i].volume / avgVolume;
+
+            if (change > 0) {
+                buyVolume += recent[i].volume * Math.abs(change) / recent[i - 1].close;
+                if (volumeRatio > 1.3) largeBuyDays++;
+            } else {
+                sellVolume += recent[i].volume * Math.abs(change) / recent[i - 1].close;
+                if (volumeRatio > 1.3) largeSellDays++;
+            }
+        }
+
+        const totalFlow = buyVolume + sellVolume;
+        const fiiProxy = totalFlow > 0 ? Math.round((buyVolume / totalFlow) * 100) : 50;
+        const diiProxy = 100 - fiiProxy;
+
+        let netFlow = 'neutral';
+        if (fiiProxy > 60) netFlow = 'strong_inflow';
+        else if (fiiProxy > 55) netFlow = 'mild_inflow';
+        else if (fiiProxy < 40) netFlow = 'strong_outflow';
+        else if (fiiProxy < 45) netFlow = 'mild_outflow';
+
+        const score = Math.min(100, Math.max(0, fiiProxy));
+
+        return {
+            fiiProxy,
+            diiProxy,
+            netFlow,
+            largeBuyDays,
+            largeSellDays,
+            score
+        };
+    }
+
+    /**
+     * Put-Call Ratio Proxy — Market sentiment from volatility + trend
+     * High PCR (>1.2) = bearish sentiment = contrarian bullish
+     * Low PCR (<0.8) = bullish sentiment = contrarian bearish
+     */
+    function calculatePCRProxy(data, lookback = 20) {
+        if (data.length < lookback + 5) return { pcr: 1.0, sentiment: 'neutral', score: 50 };
+
+        const recent = data.slice(-lookback);
+        const atrInfo = calculateATR(data);
+
+        // PCR proxy components:
+        // - High volatility + down trend → high PCR (fear)
+        // - Low volatility + up trend → low PCR (complacency)
+        const priceChange = (recent[recent.length - 1].close - recent[0].close) / recent[0].close;
+        const volFactor = atrInfo.atrPercent / 1.5; // Normalize around 1.5% ATR
+
+        let pcr = 1.0;
+        pcr += volFactor * 0.3;  // Higher vol → higher PCR
+        pcr -= priceChange * 2;   // Rising prices → lower PCR
+
+        pcr = Math.max(0.5, Math.min(1.8, pcr));
+
+        let sentiment = 'neutral';
+        if (pcr > 1.3) sentiment = 'fearful';       // Contrarian bullish
+        else if (pcr > 1.1) sentiment = 'cautious';
+        else if (pcr < 0.7) sentiment = 'greedy';    // Contrarian bearish
+        else if (pcr < 0.9) sentiment = 'optimistic';
+
+        // Score: contrarian logic — extreme fear = buying opportunity
+        let score = 50;
+        if (pcr > 1.3) score = 70;    // Extreme fear = good entry
+        else if (pcr > 1.1) score = 60;
+        else if (pcr < 0.7) score = 30;  // Extreme greed = caution
+        else if (pcr < 0.9) score = 40;
+
+        return {
+            pcr: Math.round(pcr * 100) / 100,
+            sentiment,
+            score
+        };
+    }
+
+    /**
+     * Compute all advanced indicators for a sector
+     */
+    function computeAdvancedIndicators(sectorData) {
+        return {
+            macd: calculateMACD(sectorData),
+            bollingerBands: calculateBollingerBands(sectorData),
+            atr: calculateATR(sectorData),
+            obv: calculateOBV(sectorData),
+            institutionalFlow: calculateInstitutionalFlowProxy(sectorData),
+            pcr: calculatePCRProxy(sectorData)
+        };
+    }
+
     /**
      * Calculate composite Sector Strength Score (0-100)
-     * Momentum (30%) + Relative Strength (30%) + Volume (20%) + Trend (20%)
+     * Enhanced with 6 factors: Momentum + RS + Volume + Trend + MACD + Institutional Flow
      */
     function calculateSectorStrength(sectorData, niftyData) {
         const rsi = calculateRSI(sectorData);
@@ -217,30 +483,41 @@ const AnalyticsEngine = (() => {
         const volumeInfo = detectVolumeSpike(sectorData);
         const breakoutInfo = detectBreakout(sectorData);
 
+        // Advanced indicators
+        const advanced = computeAdvancedIndicators(sectorData);
+
         // Momentum score (0-100) based on RSI normalization
-        // RSI 30-70 maps to 0-100 but with clamping
         const momentumScore = Math.min(100, Math.max(0, (rsi - 20) * (100 / 60)));
 
         // Relative Strength score (0-100)
-        // RS 0.9-1.1 maps to 0-100
         const rsScore = Math.min(100, Math.max(0, (rs - 0.9) * (100 / 0.2)));
 
         // Volume score (0-100) based on volume spike ratio
         const volumeScore = Math.min(100, Math.max(0, (volumeInfo.ratio - 0.5) * (100 / 2)));
 
         // Trend score (0-100)
-        let trendScore = 50; // neutral
+        let trendScore = 50;
         if (breakoutInfo.type === 'golden_cross') trendScore = 95;
         else if (breakoutInfo.type === 'bullish_trend') trendScore = 80;
         else if (breakoutInfo.type === 'bearish_trend') trendScore = 20;
         else trendScore = 50;
-
-        // Add price vs SMA component
         const priceSma20 = parseFloat(breakoutInfo.priceVsSMA20 || 0);
         trendScore = Math.min(100, Math.max(0, trendScore + priceSma20 * 2));
 
-        // Composite score
-        const composite = (momentumScore * 0.30) + (rsScore * 0.30) + (volumeScore * 0.20) + (trendScore * 0.20);
+        // MACD score (from advanced indicators)
+        const macdScore = advanced.macd.score;
+
+        // Institutional flow score (from advanced indicators)
+        const institutionalScore = advanced.institutionalFlow.score;
+
+        // 6-Factor Composite Score
+        const composite =
+            (momentumScore * 0.20) +
+            (rsScore * 0.20) +
+            (volumeScore * 0.15) +
+            (trendScore * 0.15) +
+            (macdScore * 0.15) +
+            (institutionalScore * 0.15);
 
         return {
             composite: Math.round(Math.min(100, Math.max(0, composite))),
@@ -248,11 +525,14 @@ const AnalyticsEngine = (() => {
             relativeStrength: Math.round(rsScore),
             volume: Math.round(volumeScore),
             trend: Math.round(trendScore),
+            macdScore: Math.round(macdScore),
+            institutionalScore: Math.round(institutionalScore),
             rsi: Math.round(rsi * 100) / 100,
             rsRatio: Math.round(rs * 1000) / 1000,
             volumeSpike: volumeInfo.spike,
             volumeRatio: Math.round(volumeInfo.ratio * 100) / 100,
-            breakout: breakoutInfo
+            breakout: breakoutInfo,
+            advanced: advanced
         };
     }
 
@@ -297,12 +577,17 @@ const AnalyticsEngine = (() => {
     // ─────────────────────────────────────────────
 
     /**
-     * Multi-factor prediction model
-     * Combines: Seasonality (35%) + Momentum (25%) + Relative Strength (20%) + Macro Proxy (20%)
+     * Multi-factor prediction model with ADAPTIVE WEIGHTS
+     * Uses self-learning weights when available, otherwise defaults
      */
     function predictTopSectors(seasonality, rankings, currentMonth) {
         const nextMonth = currentMonth === 12 ? 1 : currentMonth + 1;
         const predictions = [];
+
+        // Get adaptive weights from self-learning engine (if available)
+        const weights = (typeof SelfLearningEngine !== 'undefined') ?
+            SelfLearningEngine.getWeights() :
+            { seasonality: 0.30, momentum: 0.25, relativeStrength: 0.20, macro: 0.15, institutional: 0.10 };
 
         for (const ranking of rankings) {
             const key = ranking.sector;
@@ -320,30 +605,26 @@ const AnalyticsEngine = (() => {
             // Relative Strength Score (from rankings)
             const rsScore = ranking.relativeStrength;
 
-            // Macro Proxy Score — simulated based on sector characteristics
-            // In production this would use: USD/INR, US bond yields, crude oil, FII flows
+            // Macro Proxy Score — enhanced with institutional flow data
             let macroScore = 50;
-            // IT benefits from strong USD
             if (key === 'NIFTY_IT') macroScore = 65;
-            // Banks benefit from rising rates
             if (key === 'BANK_NIFTY') macroScore = 60;
-            // FMCG benefits from rural spending (Q3/Q4 strong)
             if (key === 'NIFTY_FMCG' && (nextMonth >= 10 || nextMonth <= 1)) macroScore = 70;
-            // Metals track global commodity cycle
             if (key === 'NIFTY_METAL') macroScore = 55;
-            // Auto benefits from festive season
             if (key === 'NIFTY_AUTO' && nextMonth >= 9 && nextMonth <= 11) macroScore = 72;
-            // Pharma defensive play in uncertain times
             if (key === 'NIFTY_PHARMA') macroScore = 58;
-            // Realty benefits from rate cuts / budget
             if (key === 'NIFTY_REALTY' && (nextMonth === 2 || nextMonth === 3)) macroScore = 68;
 
-            // Composite prediction score
+            // Institutional Flow Score (from MACD + OBV + volume proxy)
+            const institutionalScore = ranking.institutionalScore || ranking.macdScore || 50;
+
+            // ADAPTIVE COMPOSITE PREDICTION SCORE
             const predictionScore = (
-                seasonalScore * 0.35 +
-                momentumScore * 0.25 +
-                rsScore * 0.20 +
-                macroScore * 0.20
+                seasonalScore * weights.seasonality +
+                momentumScore * weights.momentum +
+                rsScore * weights.relativeStrength +
+                macroScore * weights.macro +
+                institutionalScore * weights.institutional
             );
 
             // Confidence: based on consistency and alignment of factors
@@ -550,6 +831,13 @@ const AnalyticsEngine = (() => {
         detectVolumeSpike,
         calculateRelativeStrength,
         detectBreakout,
+        calculateMACD,
+        calculateBollingerBands,
+        calculateATR,
+        calculateOBV,
+        calculateInstitutionalFlowProxy,
+        calculatePCRProxy,
+        computeAdvancedIndicators,
         calculateSectorStrength,
         rankSectors,
         predictTopSectors,

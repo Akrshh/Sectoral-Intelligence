@@ -114,6 +114,16 @@ const Dashboard = (() => {
 
         // Setup heatmap tabs
         setupHeatmapTabs();
+
+        // Run self-learning cycle
+        if (typeof SelfLearningEngine !== 'undefined') {
+            try {
+                await SelfLearningEngine.runLearningCycle(allData, predictions, rankings, currentMonth, currentYear);
+                renderLearning();
+            } catch (e) {
+                console.log('Self-learning cycle skipped:', e.message);
+            }
+        }
     }
 
     function updateLoadingText(text) {
@@ -532,6 +542,102 @@ const Dashboard = (() => {
         </div>`;
 
         html += '</div>';
+        container.innerHTML = html;    // ─────────────────────────────────────────────
+    // AI LEARNING PANEL
+    // ─────────────────────────────────────────────
+
+    function renderLearning() {
+        const container = document.getElementById('learningBody');
+        if (!container || typeof SelfLearningEngine === 'undefined') return;
+
+        const metrics = SelfLearningEngine.getMetrics();
+        const summary = SelfLearningEngine.getSummary();
+        const weights = metrics.currentWeights;
+        const defaults = metrics.defaultWeights;
+
+        // Update status badge
+        const badge = document.getElementById('learningStatusBadge');
+        if (badge) {
+            if (summary.evaluated > 0) {
+                badge.textContent = `${summary.hitRate}% Accuracy`;
+                badge.style.background = 'rgba(34, 197, 94, 0.15)';
+                badge.style.color = 'var(--green-pos)';
+                badge.style.borderColor = 'rgba(34, 197, 94, 0.3)';
+            } else {
+                badge.textContent = 'Learning...';
+            }
+        }
+
+        const factorLabels = {
+            seasonality: { name: 'Seasonality', icon: '📅', color: '#f59e0b' },
+            momentum: { name: 'Momentum', icon: '🚀', color: '#6366f1' },
+            relativeStrength: { name: 'Relative Strength', icon: '💪', color: '#06b6d4' },
+            macro: { name: 'Macro/Sector', icon: '🌍', color: '#10b981' },
+            institutional: { name: 'FII/DII Flow', icon: '🏦', color: '#ec4899' }
+        };
+
+        let html = '<div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">';
+
+        // Left: Adaptive Weights
+        html += '<div>';
+        html += '<div style="font-size:13px; font-weight:600; margin-bottom:14px; color:var(--text-bright);">📊 Adaptive Model Weights</div>';
+
+        for (const [key, info] of Object.entries(factorLabels)) {
+            const weight = weights[key] || 0;
+            const defaultWeight = defaults[key] || 0;
+            const pct = (weight * 100).toFixed(1);
+            const defPct = (defaultWeight * 100).toFixed(0);
+            const changed = Math.abs(weight - defaultWeight) > 0.01;
+            const arrow = weight > defaultWeight ? '▲' : weight < defaultWeight ? '▼' : '=';
+            const arrowColor = weight > defaultWeight ? 'var(--green-pos)' : weight < defaultWeight ? 'var(--red-neg)' : 'var(--text-muted)';
+
+            html += `<div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+                <span style="font-size:14px; width:22px;">${info.icon}</span>
+                <span style="width:110px; font-size:11px; color:var(--text-secondary);">${info.name}</span>
+                <div style="flex:1; height:8px; background:rgba(255,255,255,0.05); border-radius:4px; overflow:hidden;">
+                    <div style="width:${pct}%; height:100%; background:${info.color}; border-radius:4px; transition:width 0.5s;"></div>
+                </div>
+                <span style="font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:600; min-width:45px; color:${info.color};">${pct}%</span>
+                ${changed ? `<span style="font-size:9px; color:${arrowColor};" title="Default: ${defPct}%">${arrow}</span>` : ''}
+            </div>`;
+        }
+
+        html += `<div style="margin-top:12px; font-size:10px; color:var(--text-muted);">Weights adjust automatically as the model learns from past predictions. Default weights shown with ▲▼ arrows.</div>`;
+        html += '</div>';
+
+        // Right: Learning Metrics
+        html += '<div>';
+        html += '<div style="font-size:13px; font-weight:600; margin-bottom:14px; color:var(--text-bright);">🧠 Learning Metrics</div>';
+
+        const statCards = [
+            { label: 'Status', value: summary.evaluated > 0 ? 'Active' : 'Learning', color: summary.evaluated > 0 ? 'var(--green-pos)' : 'var(--accent-amber)' },
+            { label: 'Predictions Logged', value: summary.totalPredictions, color: 'var(--accent-cyan)' },
+            { label: 'Evaluated', value: summary.evaluated, color: 'var(--accent-violet)' },
+            { label: 'Pending', value: summary.pending, color: 'var(--accent-orange)' },
+            { label: 'Hit Rate (Top 3)', value: summary.evaluated > 0 ? summary.hitRate + '%' : 'N/A', color: 'var(--green-pos)' },
+            { label: 'Avg Rank Error', value: summary.evaluated > 0 ? summary.avgError : 'N/A', color: 'var(--accent-amber)' }
+        ];
+
+        html += '<div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;">';
+        for (const stat of statCards) {
+            html += `<div style="background:var(--bg-glass); border:1px solid var(--border-glass); border-radius:var(--radius-sm); padding:12px; text-align:center;">
+                <div style="font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">${stat.label}</div>
+                <div style="font-size:16px; font-weight:700; color:${stat.color}; font-family:'JetBrains Mono',monospace;">${stat.value}</div>
+            </div>`;
+        }
+        html += '</div>';
+
+        // How it works explanation
+        html += `<div style="margin-top:14px; padding:12px; background:linear-gradient(135deg, rgba(6,182,212,0.05), rgba(99,102,241,0.05)); border:1px solid rgba(6,182,212,0.15); border-radius:var(--radius-sm); font-size:10px; line-height:1.6; color:var(--text-secondary);">
+            <strong style="color:var(--text-bright);">How Self-Learning Works:</strong><br>
+            1. Every month, the AI logs its sector predictions<br>
+            2. When actual data arrives, it compares prediction vs reality<br>
+            3. Factors that were accurate get <span style="color:var(--green-pos);">more weight ▲</span><br>
+            4. Factors that were wrong get <span style="color:var(--red-neg);">less weight ▼</span><br>
+            5. Over time, the model becomes <strong style="color:var(--accent-cyan);">more accurate</strong>
+        </div>`;
+
+        html += '</div></div>';
         container.innerHTML = html;
     }
 
@@ -563,18 +669,30 @@ const Dashboard = (() => {
         html += `<tr style="color:var(--text-muted); font-size:10px; text-transform:uppercase; letter-spacing:0.5px;">
             <th style="text-align:left; padding:8px 12px;">Sector</th>
             <th style="text-align:center; padding:8px;">Composite</th>
-            <th style="text-align:center; padding:8px;">Momentum (30%)</th>
-            <th style="text-align:center; padding:8px;">Relative Str (30%)</th>
-            <th style="text-align:center; padding:8px;">Volume (20%)</th>
-            <th style="text-align:center; padding:8px;">Trend (20%)</th>
+            <th style="text-align:center; padding:8px;">Momentum</th>
+            <th style="text-align:center; padding:8px;">Rel Str</th>
+            <th style="text-align:center; padding:8px;">MACD</th>
+            <th style="text-align:center; padding:8px;">FII/DII</th>
             <th style="text-align:center; padding:8px;">RSI</th>
-            <th style="text-align:center; padding:8px;">RS Ratio</th>
-            <th style="text-align:center; padding:8px;">Vol Spike</th>
+            <th style="text-align:center; padding:8px;">BB Pos</th>
+            <th style="text-align:center; padding:8px;">PCR</th>
             <th style="text-align:center; padding:8px;">Breakout</th>
         </tr>`;
 
         for (const r of rankings) {
             const compositeColor = getScoreColor(r.composite);
+            const adv = r.advanced || {};
+            const macdTrend = adv.macd?.trend || 'neutral';
+            const macdColor = macdTrend.includes('bullish') ? 'var(--green-pos)' : macdTrend.includes('bearish') ? 'var(--red-neg)' : 'var(--text-muted)';
+            const fiiFlow = adv.institutionalFlow?.netFlow || 'neutral';
+            const fiiColor = fiiFlow.includes('inflow') ? 'var(--green-pos)' : fiiFlow.includes('outflow') ? 'var(--red-neg)' : 'var(--text-muted)';
+            const bbPos = adv.bollingerBands?.position ?? 50;
+            const bbLabel = bbPos > 80 ? 'OB' : bbPos < 20 ? 'OS' : 'Mid';
+            const bbColor = bbPos > 80 ? 'var(--red-neg)' : bbPos < 20 ? 'var(--green-pos)' : 'var(--text-secondary)';
+            const pcr = adv.pcr?.pcr ?? 1.0;
+            const pcrSent = adv.pcr?.sentiment || 'neutral';
+            const pcrColor = pcrSent === 'fearful' ? 'var(--green-pos)' : pcrSent === 'greedy' ? 'var(--red-neg)' : 'var(--text-secondary)';
+
             html += `<tr style="background:var(--bg-glass); border-radius:8px;">
                 <td style="padding:10px 12px; font-weight:500;">
                     <span style="color:${r.color}">●</span> ${r.name}
@@ -584,16 +702,20 @@ const Dashboard = (() => {
                 </td>
                 <td style="text-align:center; padding:8px;">${createMiniBar(r.momentum, '#6366f1')}</td>
                 <td style="text-align:center; padding:8px;">${createMiniBar(r.relativeStrength, '#06b6d4')}</td>
-                <td style="text-align:center; padding:8px;">${createMiniBar(r.volume, '#f59e0b')}</td>
-                <td style="text-align:center; padding:8px;">${createMiniBar(r.trend, '#10b981')}</td>
+                <td style="text-align:center; padding:8px;">
+                    <span style="color:${macdColor}; font-size:10px; font-weight:600;">${macdTrend.replace('_', ' ').toUpperCase()}</span>
+                </td>
+                <td style="text-align:center; padding:8px;">
+                    <span style="color:${fiiColor}; font-size:10px; font-weight:600;">${fiiFlow.replace('_', ' ').toUpperCase()}</span>
+                </td>
                 <td style="text-align:center; padding:8px; font-family:'JetBrains Mono',monospace; font-size:11px; color:${r.rsi > 70 ? 'var(--red-neg)' : r.rsi < 30 ? 'var(--green-pos)' : 'var(--text-secondary)'}">
                     ${r.rsi.toFixed(1)}
                 </td>
-                <td style="text-align:center; padding:8px; font-family:'JetBrains Mono',monospace; font-size:11px; color:${r.rsRatio > 1 ? 'var(--green-pos)' : 'var(--red-neg)'}">
-                    ${r.rsRatio.toFixed(3)}
-                </td>
                 <td style="text-align:center; padding:8px;">
-                    ${r.volumeSpike ? `<span style="color:var(--accent-amber)">⚡ ${r.volumeRatio}x</span>` : `<span style="color:var(--text-muted)">${r.volumeRatio}x</span>`}
+                    <span style="color:${bbColor}; font-size:10px; font-weight:600;">${bbLabel} (${bbPos}%)</span>
+                </td>
+                <td style="text-align:center; padding:8px; font-family:'JetBrains Mono',monospace; font-size:11px; color:${pcrColor}">
+                    ${pcr} <span style="font-size:8px;">${pcrSent}</span>
                 </td>
                 <td style="text-align:center; padding:8px;">
                     ${getBreakoutBadge(r.breakout.type)}

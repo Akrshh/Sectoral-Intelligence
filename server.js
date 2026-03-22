@@ -35,6 +35,10 @@ if (!fs.existsSync(CACHE_DIR)) {
 
 // ── Serve static files ──
 app.use(express.static(__dirname));
+app.use(express.json({ limit: '10mb' }));
+
+// Learning data file
+const LEARNING_FILE = path.join(CACHE_DIR, 'learning_history.json');
 
 // ── API: Get sector data ──
 app.get('/api/sector-data', async (req, res) => {
@@ -84,6 +88,30 @@ app.get('/api/status', (req, res) => {
         source: meta?.source || 'none',
         symbolsFetched: meta?.symbolsFetched || 0
     });
+});
+
+// ── API: Self-Learning Data ──
+app.get('/api/learning', (req, res) => {
+    try {
+        if (fs.existsSync(LEARNING_FILE)) {
+            const data = JSON.parse(fs.readFileSync(LEARNING_FILE, 'utf-8'));
+            res.json({ success: true, data });
+        } else {
+            res.json({ success: true, data: null });
+        }
+    } catch (error) {
+        res.json({ success: false, message: error.message });
+    }
+});
+
+app.post('/api/learning', (req, res) => {
+    try {
+        fs.writeFileSync(LEARNING_FILE, JSON.stringify(req.body, null, 2));
+        console.log('🧠 Learning data saved');
+        res.json({ success: true });
+    } catch (error) {
+        res.json({ success: false, message: error.message });
+    }
 });
 
 

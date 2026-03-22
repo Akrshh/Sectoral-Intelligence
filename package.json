@@ -1,0 +1,15 @@
+{
+  "name": "sectoral-intelligence",
+  "version": "1.0.0",
+  "description": "NSE Sectoral Intelligence System — AI-Powered Sector Rotation Analysis",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "keywords": ["nse", "sectoral", "analysis", "nifty", "finance"],
+  "license": "MIT"
+}

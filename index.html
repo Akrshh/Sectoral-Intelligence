@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="NSE Sectoral Intelligence System — AI-powered sector rotation analysis dashboard for Indian stock market">
+    <title>Sectoral Intelligence System | NSE India</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>📊</text></svg>">
+</head>
+<body>
+
+    <!-- Loading Screen -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Initializing Sectoral Intelligence System...</div>
+    </div>
+
+    <div class="app-container">
+
+        <!-- ═══ HEADER ═══ -->
+        <header class="header" id="header">
+            <div class="header-left">
+                <div class="header-logo">SI</div>
+                <div>
+                    <div class="header-title">Sectoral Intelligence System</div>
+                    <div class="header-subtitle">NSE India · AI-Powered Sector Rotation Analysis</div>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="header-date" id="headerDate"></div>
+                <button class="refresh-btn" id="refreshBtn" onclick="Dashboard.manualRefresh()" title="Refresh data from Yahoo Finance">🔄 Refresh Data</button>
+                <span class="header-badge badge-simulated" id="dataSourceBadge">⚙ LOADING...</span>
+            </div>
+        </header>
+
+        <div class="dashboard-grid">
+
+            <!-- ═══ SECTOR HEATMAP ═══ -->
+            <div class="card full-width fade-in" id="heatmapCard">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="icon">🗺️</span> Sector Performance Heatmap
+                    </div>
+                    <div class="tab-container" id="heatmapTabs">
+                        <button class="tab-btn active" data-period="1W">1W</button>
+                        <button class="tab-btn" data-period="1M">1M</button>
+                        <button class="tab-btn" data-period="3M">3M</button>
+                        <button class="tab-btn" data-period="6M">6M</button>
+                        <button class="tab-btn" data-period="1Y">1Y</button>
+                        <button class="tab-btn" data-period="YTD">YTD</button>
+                    </div>
+                </div>
+                <div class="card-body" id="heatmapBody"></div>
+            </div>
+
+            <!-- ═══ SECTOR RANKINGS ═══ -->
+            <div class="card fade-in" id="rankingsCard">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="icon">🏆</span> Sector Strength Rankings
+                    </div>
+                    <span class="card-badge" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-emerald); border: 1px solid rgba(16, 185, 129, 0.3);">
+                        Live Score
+                    </span>
+                </div>
+                <div class="card-body" id="rankingsBody"></div>
+            </div>
+
+            <!-- ═══ AI PREDICTIONS ═══ -->
+            <div class="card fade-in" id="predictionsCard">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="icon">🤖</span> AI Sector Predictions
+                    </div>
+                    <span class="card-badge" style="background: rgba(139, 92, 246, 0.15); color: var(--accent-violet); border: 1px solid rgba(139, 92, 246, 0.3);" id="predictionMonthBadge">
+                        Next Month
+                    </span>
+                </div>
+                <div class="card-body" id="predictionsBody"></div>
+            </div>
+
+            <!-- ═══ SEASONALITY TABLE ═══ -->
+            <div class="card full-width fade-in" id="seasonalityCard">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="icon">📅</span> Monthly Seasonality Matrix
+                    </div>
+                    <div class="tab-container">
+                        <button class="tab-btn active" id="tabReturns" onclick="Dashboard.toggleSeasonalityView('returns')">Avg Returns</button>
+                        <button class="tab-btn" id="tabConsistency" onclick="Dashboard.toggleSeasonalityView('consistency')">Consistency</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="seasonality-table-wrapper" id="seasonalityBody"></div>
+                </div>
+            </div>
+
+            <!-- ═══ INSIGHTS & OUTLOOK ═══ -->
+            <div class="card full-width fade-in" id="insightsCard">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="icon">💡</span> Actionable Insights & Outlook
+                    </div>
+                </div>
+                <div class="card-body" id="insightsBody"></div>
+            </div>
+
+            <!-- ═══ SCORE BREAKDOWN ═══ -->
+            <div class="card full-width fade-in" id="breakdownCard">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="icon">📊</span> Sector Strength Score Breakdown
+                    </div>
+                </div>
+                <div class="card-body" id="breakdownBody"></div>
+            </div>
+
+        </div>
+
+        <!-- Data Stamp -->
+        <div class="data-stamp">
+            📊 Sectoral Intelligence System v1.0 · Powered by Yahoo Finance
+            <br>Usage: <code style="background:rgba(255,255,255,0.05);padding:2px 6px;border-radius:3px;">npm start</code> → open <a href="http://localhost:3000" style="color:var(--accent-cyan);">http://localhost:3000</a>
+            <br>Auto-refreshes every 15 min during market hours (9:00–15:45 IST, Mon–Fri)
+        </div>
+
+    </div>
+
+    <script src="sector_data.js"></script>
+    <script src="analytics.js"></script>
+    <script src="app.js"></script>
+
+</body>
+</html>

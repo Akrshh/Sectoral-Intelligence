@@ -1,0 +1,4 @@
+node_modules/
+data_cache/
+*.mjs
+test_*.js

@@ -354,12 +354,14 @@ app.listen(PORT, () => {
 ╚══════════════════════════════════════════════════════════╝
     `);
 
-    // Auto-fetch on first start
-    console.log('🚀 Fetching initial data...');
-    getSectorData().then(data => {
-        console.log(`✅ Ready! Source: ${data.source}`);
-        console.log(`   Open http://localhost:${PORT} in your browser\n`);
-    }).catch(err => {
-        console.log(`⚠️ Live data unavailable (${err.message}). Dashboard will use simulated data.\n`);
-    });
+    // Auto-fetch data AFTER server is ready (delay so static files can serve first)
+    setTimeout(() => {
+        console.log('🚀 Fetching initial data...');
+        getSectorData().then(data => {
+            console.log(`✅ Ready! Source: ${data.source}`);
+            console.log(`   Open http://localhost:${PORT} in your browser\n`);
+        }).catch(err => {
+            console.log(`⚠️ Live data unavailable (${err.message}). Dashboard will use simulated data.\n`);
+        });
+    }, 5000);
 });

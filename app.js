@@ -556,7 +556,10 @@ const Dashboard = (() => {
         </div>`;
 
         html += '</div>';
-        container.innerHTML = html;    // ─────────────────────────────────────────────
+        container.innerHTML = html;
+    }
+
+    // ─────────────────────────────────────────────
     // AI LEARNING PANEL
     // ─────────────────────────────────────────────
 

@@ -34,6 +34,15 @@ const Dashboard = (() => {
         // Show current date
         document.getElementById('headerDate').textContent = formatDate(new Date());
 
+        // Safety net: always hide loading after 10 seconds max
+        const safetyTimeout = setTimeout(() => {
+            const overlay = document.getElementById('loadingOverlay');
+            if (overlay && !overlay.classList.contains('hidden')) {
+                console.warn('Safety timeout: forcing loading overlay to hide');
+                overlay.classList.add('hidden');
+            }
+        }, 10000);
+
         updateLoadingText('Connecting to data server...');
 
         try {
@@ -47,13 +56,18 @@ const Dashboard = (() => {
             dataSource = 'simulated';
         }
 
-        updateLoadingText('Running analytics engine...');
-        await runAnalyticsAndRender();
+        try {
+            updateLoadingText('Running analytics engine...');
+            await runAnalyticsAndRender();
+        } catch (e) {
+            console.error('Analytics error:', e);
+        }
 
         // Setup auto-refresh (every 15 min during market hours)
         startAutoRefresh();
 
         // Hide loading
+        clearTimeout(safetyTimeout);
         setTimeout(() => {
             document.getElementById('loadingOverlay').classList.add('hidden');
         }, 600);

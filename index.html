@@ -115,6 +115,78 @@
                 </div>
                 <div class="card-body" id="breakdownBody"></div>
             </div>
+            <!-- ═══ STOCK SCREENER: MACRO SUMMARY ═══ -->
+            <div class="card full-width fade-in" id="macroCard">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="icon">🌍</span> Macro & Market Regime
+                    </div>
+                    <span class="card-badge" id="regimeBadge" style="background: rgba(234,179,8,0.15); color: var(--accent-amber); border: 1px solid rgba(234,179,8,0.3);">
+                        Loading...
+                    </span>
+                </div>
+                <div class="card-body" id="macroBody"></div>
+            </div>
+
+            <!-- ═══ STOCK SCREENER: SECTOR ROTATION ═══ -->
+            <div class="card full-width fade-in" id="sectorRotationCard">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="icon">🔄</span> Sector Rotation Model
+                    </div>
+                    <span class="card-badge" style="background: rgba(99,102,241,0.15); color: var(--accent-indigo); border: 1px solid rgba(99,102,241,0.3);">
+                        Top 2-3 Selected
+                    </span>
+                </div>
+                <div class="card-body" id="sectorRotationBody"></div>
+            </div>
+
+            <!-- ═══ STOCK SCREENER: STOCK PICKS ═══ -->
+            <div class="card full-width fade-in" id="stockPicksCard">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="icon">🏛️</span> Institutional Stock Picks
+                    </div>
+                    <div class="tab-container" id="stockSectorTabs">
+                        <button class="tab-btn active" data-sector="ALL">ALL</button>
+                        <button class="tab-btn" data-sector="QUALIFIED">QUALIFIED</button>
+                        <button class="tab-btn" data-sector="NIFTY_IT">IT</button>
+                        <button class="tab-btn" data-sector="BANK_NIFTY">BANK</button>
+                        <button class="tab-btn" data-sector="NIFTY_AUTO">AUTO</button>
+                        <button class="tab-btn" data-sector="NIFTY_FMCG">FMCG</button>
+                        <button class="tab-btn" data-sector="NIFTY_PHARMA">PHARMA</button>
+                        <button class="tab-btn" data-sector="NIFTY_METAL">METAL</button>
+                        <button class="tab-btn" data-sector="NIFTY_REALTY">REALTY</button>
+                    </div>
+                </div>
+                <div class="card-body" id="stockPicksBody">
+                    <div class="screener-loading">Running 6-step screening process...</div>
+                </div>
+            </div>
+
+            <!-- ═══ STOCK SCREENER: SCORING TABLE ═══ -->
+            <div class="card full-width fade-in" id="scoringTableCard">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="icon">📋</span> Scoring Table (/40)
+                    </div>
+                    <span class="card-badge" style="background: rgba(16,185,129,0.15); color: var(--accent-emerald); border: 1px solid rgba(16,185,129,0.3);">
+                        Minimum 30 to Qualify
+                    </span>
+                </div>
+                <div class="card-body" id="scoringTableBody"></div>
+            </div>
+
+            <!-- ═══ DATA VALIDATION ═══ -->
+            <div class="card full-width fade-in" id="dataValidationCard">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="icon">✅</span> Data Validation & Sources
+                    </div>
+                </div>
+                <div class="card-body" id="dataValidationBody"></div>
+            </div>
+
             <!-- ═══ AI LEARNING & ADVANCED INDICATORS ═══ -->
             <div class="card full-width fade-in" id="learningCard">
                 <div class="card-header">
@@ -141,6 +213,8 @@
 
     <script src="sector_data.js"></script>
     <script src="analytics.js"></script>
+    <script src="stock_universe.js"></script>
+    <script src="stock_screener.js"></script>
     <script src="self_learning.js"></script>
     <script src="app.js"></script>
 

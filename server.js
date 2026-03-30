@@ -115,6 +115,111 @@ app.post('/api/learning', (req, res) => {
 });
 
 
+// ── Stock Symbols (for Stock Screener) ──
+const STOCK_SYMBOLS = [
+    'TCS.NS','INFY.NS','WIPRO.NS','HCLTECH.NS','TECHM.NS','LTIM.NS','PERSISTENT.NS','COFORGE.NS','MPHASIS.NS',
+    'HDFCBANK.NS','ICICIBANK.NS','SBIN.NS','KOTAKBANK.NS','AXISBANK.NS','INDUSINDBK.NS','FEDERALBNK.NS','PNB.NS','BANKBARODA.NS','AUBANK.NS',
+    'M&M.NS','TATAMOTORS.NS','MARUTI.NS','BAJAJ-AUTO.NS','HEROMOTOCO.NS','EICHERMOT.NS','TVSMOTOR.NS','ASHOKLEY.NS',
+    'HINDUNILVR.NS','ITC.NS','NESTLEIND.NS','BRITANNIA.NS','DABUR.NS','GODREJCP.NS','MARICO.NS','TATACONSUM.NS',
+    'SUNPHARMA.NS','DRREDDY.NS','CIPLA.NS','DIVISLAB.NS','APOLLOHOSP.NS','LUPIN.NS','AUROPHARMA.NS','TORNTPHARM.NS','ZYDUSLIFE.NS',
+    'TATASTEEL.NS','JSWSTEEL.NS','HINDALCO.NS','COALINDIA.NS','VEDL.NS','NMDC.NS','SAIL.NS','NATIONALUM.NS',
+    'DLF.NS','GODREJPROP.NS','OBEROIRLTY.NS','PRESTIGE.NS','BRIGADE.NS','PHOENIXLTD.NS','SOBHA.NS','LODHA.NS'
+];
+
+const STOCK_CACHE_FILE = path.join(CACHE_DIR, 'stock_data.json');
+const STOCK_CACHE_META_FILE = path.join(CACHE_DIR, 'stock_cache_meta.json');
+
+// ── API: Get stock data ──
+app.get('/api/stock-data', async (req, res) => {
+    try {
+        const forceRefresh = req.query.refresh === 'true';
+        const data = await getStockData(forceRefresh);
+        res.json({ success: true, data: data.stocks, meta: data.meta });
+    } catch (error) {
+        console.error('Stock data error:', error.message);
+        res.json({ success: true, data: {}, meta: { source: 'empty', note: 'Stock data unavailable' } });
+    }
+});
+
+// ── API: Refresh stock data ──
+app.get('/api/stock-refresh', async (req, res) => {
+    try {
+        console.log('🔄 Manual stock data refresh...');
+        const data = await fetchAllStocks();
+        saveStockCache(data);
+        res.json({ success: true, message: `Refreshed ${data.meta.symbolsFetched} stocks` });
+    } catch (error) {
+        res.json({ success: false, message: error.message });
+    }
+});
+
+async function getStockData(forceRefresh = false) {
+    if (!forceRefresh) {
+        const cached = getStockCache();
+        if (cached) return cached;
+    }
+    try {
+        const data = await fetchAllStocks();
+        saveStockCache(data);
+        return data;
+    } catch (error) {
+        const stale = getStockCache(true);
+        if (stale) return stale;
+        throw error;
+    }
+}
+
+async function fetchAllStocks() {
+    const stocks = {};
+    let successCount = 0;
+    console.log(`\n📈 Fetching ${STOCK_SYMBOLS.length} stocks from Yahoo Finance...\n`);
+
+    for (const symbol of STOCK_SYMBOLS) {
+        try {
+            const data = await fetchYahooChart(symbol, 1); // 1 year for stocks
+            if (data.length > 0) {
+                stocks[symbol] = data;
+                successCount++;
+                if (successCount % 10 === 0) console.log(`  ✅ ${successCount}/${STOCK_SYMBOLS.length} stocks fetched...`);
+            }
+            await sleep(500); // Rate limit
+        } catch (err) {
+            console.error(`  ❌ ${symbol}: ${err.message}`);
+        }
+    }
+    console.log(`\n✅ Fetched ${successCount}/${STOCK_SYMBOLS.length} stocks\n`);
+
+    return {
+        stocks,
+        meta: {
+            lastFetch: Date.now(),
+            lastFetchTime: new Date().toISOString(),
+            source: 'yahoo_finance_stocks',
+            symbolsFetched: successCount,
+            totalSymbols: STOCK_SYMBOLS.length
+        }
+    };
+}
+
+function getStockCache(allowStale = false) {
+    try {
+        if (!fs.existsSync(STOCK_CACHE_FILE) || !fs.existsSync(STOCK_CACHE_META_FILE)) return null;
+        const meta = JSON.parse(fs.readFileSync(STOCK_CACHE_META_FILE, 'utf-8'));
+        if (!allowStale && (Date.now() - meta.lastFetch > CACHE_DURATION_MS)) return null;
+        const stocks = JSON.parse(fs.readFileSync(STOCK_CACHE_FILE, 'utf-8'));
+        return { stocks, meta };
+    } catch { return null; }
+}
+
+function saveStockCache(data) {
+    try {
+        fs.writeFileSync(STOCK_CACHE_FILE, JSON.stringify(data.stocks));
+        fs.writeFileSync(STOCK_CACHE_META_FILE, JSON.stringify(data.meta, null, 2));
+        console.log('💾 Stock data cached');
+    } catch (err) { console.error('Stock cache error:', err.message); }
+}
+
+
 // ─────────────────────────────────────────────
 // YAHOO FINANCE DIRECT API
 // ─────────────────────────────────────────────

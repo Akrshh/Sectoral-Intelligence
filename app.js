@@ -66,6 +66,9 @@ const Dashboard = (() => {
         // Setup auto-refresh (every 15 min during market hours)
         startAutoRefresh();
 
+        // Run stock screener (non-blocking — loads in parallel)
+        initStockScreener().catch(e => console.error('Screener init error:', e));
+
         // Hide loading
         clearTimeout(safetyTimeout);
         setTimeout(() => {
@@ -761,6 +764,355 @@ const Dashboard = (() => {
             'neutral': '<span style="color:var(--text-muted); font-size:10px;">➖ Neutral</span>'
         };
         return badges[type] || badges['neutral'];
+    }
+
+
+    // ─────────────────────────────────────────────
+    // STOCK SCREENER INTEGRATION
+    // ─────────────────────────────────────────────
+
+    let screenerResults = null;
+    let stockPriceData = null;
+    let currentStockFilter = 'ALL';
+
+    async function initStockScreener() {
+        try {
+            updateLoadingText('Fetching stock price data...');
+            stockPriceData = await fetchStockPriceData();
+        } catch (e) {
+            console.log('Stock price data unavailable, using analysis without live prices:', e.message);
+            stockPriceData = {};
+        }
+
+        try {
+            updateLoadingText('Running 6-step institutional screening...');
+            screenerResults = StockScreener.runFullScreening(rankings, stockPriceData);
+
+            renderMacroSummary();
+            renderSectorRotation();
+            renderStockPicks('ALL');
+            renderScoringTable();
+            renderDataValidation();
+            setupStockSectorTabs();
+        } catch (e) {
+            console.error('Stock screener error:', e);
+        }
+    }
+
+    async function fetchStockPriceData() {
+        const response = await fetch('/api/stock-data');
+        const json = await response.json();
+        if (!json.success || !json.data) return {};
+
+        // Convert date strings for compatibility
+        const formatted = {};
+        for (const [symbol, records] of Object.entries(json.data)) {
+            formatted[symbol] = records.map(r => ({
+                ...r,
+                date: new Date(r.date),
+                dateStr: r.dateStr || new Date(r.date).toISOString().split('T')[0]
+            }));
+        }
+        return formatted;
+    }
+
+    // ── Macro Summary ──
+    function renderMacroSummary() {
+        if (!screenerResults) return;
+        const macro = screenerResults.macro;
+        const container = document.getElementById('macroBody');
+        const badge = document.getElementById('regimeBadge');
+
+        const regimeColors = {
+            'Bullish': { bg: 'rgba(34,197,94,0.15)', color: 'var(--green-pos)', border: 'rgba(34,197,94,0.3)', emoji: '📈', cls: 'regime-bullish' },
+            'Bearish': { bg: 'rgba(239,68,68,0.15)', color: 'var(--red-neg)', border: 'rgba(239,68,68,0.3)', emoji: '📉', cls: 'regime-bearish' },
+            'Sideways': { bg: 'rgba(234,179,8,0.15)', color: 'var(--accent-amber)', border: 'rgba(234,179,8,0.3)', emoji: '↔️', cls: 'regime-sideways' },
+            'Transition': { bg: 'rgba(139,92,246,0.15)', color: 'var(--accent-violet)', border: 'rgba(139,92,246,0.3)', emoji: '🔄', cls: 'regime-transition' }
+        };
+        const rc = regimeColors[macro.regime] || regimeColors['Sideways'];
+
+        badge.style.background = rc.bg;
+        badge.style.color = rc.color;
+        badge.style.borderColor = rc.border;
+        badge.textContent = `${macro.regime} (${macro.regimeConfidence}% conf)`;
+
+        let html = `<div class="macro-regime-banner">
+            <div class="regime-indicator ${rc.cls}">${rc.emoji}</div>
+            <div style="flex:1;">
+                <div style="font-size:18px; font-weight:700; color:${rc.color}; margin-bottom:4px;">${macro.regime} Market</div>
+                <div style="font-size:12px; color:var(--text-secondary); line-height:1.6;">${macro.forwardOutlook}</div>
+            </div>
+        </div>`;
+
+        // Key macro details
+        html += `<div style="display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-bottom:14px;">
+            ${macroStatCard('RBI', macro.details.rbiStance, 'var(--accent-indigo)')}
+            ${macroStatCard('CPI', macro.details.cpiTrend, 'var(--accent-amber)')}
+            ${macroStatCard('GDP', macro.details.gdpOutlook, 'var(--green-pos)')}
+            ${macroStatCard('Liquidity', macro.details.liquidity, 'var(--accent-cyan)')}
+            ${macroStatCard('Global', macro.details.globalCues, 'var(--accent-orange)')}
+        </div>`;
+
+        // Drivers
+        html += '<div class="macro-drivers">';
+        macro.keyDrivers.forEach(d => {
+            html += `<div class="macro-driver-pill">${d}</div>`;
+        });
+        html += '</div>';
+
+        container.innerHTML = html;
+    }
+
+    function macroStatCard(label, value, color) {
+        return `<div style="background:var(--bg-glass); border:1px solid var(--border-glass); border-radius:var(--radius-sm); padding:10px; text-align:center; border-top:2px solid ${color};">
+            <div style="font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">${label}</div>
+            <div style="font-size:11px; font-weight:600; color:var(--text-bright);">${value}</div>
+        </div>`;
+    }
+
+    // ── Sector Rotation Pipeline ──
+    function renderSectorRotation() {
+        if (!screenerResults) return;
+        const sc = screenerResults.sectorClassification;
+        const container = document.getElementById('sectorRotationBody');
+
+        const stages = { 'Leading': [], 'Improving': [], 'Weakening': [], 'Lagging': [] };
+        for (const [key, data] of Object.entries(sc)) {
+            stages[data.category].push({ key, ...data });
+        }
+
+        let html = '<div class="rotation-pipeline">';
+        for (const [stage, sectors] of Object.entries(stages)) {
+            const stageClass = `stage-${stage.toLowerCase()}`;
+            html += `<div class="rotation-stage ${stageClass}">
+                <div class="stage-title">${stage}</div>`;
+            if (sectors.length === 0) {
+                html += '<div style="font-size:11px; color:var(--text-muted); padding:8px;">None</div>';
+            }
+            for (const s of sectors) {
+                const selected = screenerResults.topSectors.includes(s.key);
+                const border = selected ? 'border:1px solid var(--accent-cyan);' : '';
+                const selBadge = selected ? ' ⭐' : '';
+                html += `<div class="stage-sector" style="${border}">
+                    <span>${s.name}${selBadge}</span>
+                    <span class="stage-score" style="color:${getScoreColor(s.composite)}">${s.composite}</span>
+                </div>`;
+            }
+            html += '</div>';
+        }
+        html += '</div>';
+
+        container.innerHTML = html;
+    }
+
+    // ── Stock Picks ──
+    function renderStockPicks(filter) {
+        if (!screenerResults) return;
+        const container = document.getElementById('stockPicksBody');
+        currentStockFilter = filter;
+
+        let stocks = screenerResults.allStockAnalysis;
+        if (filter === 'QUALIFIED') {
+            stocks = screenerResults.qualifiedPicks;
+        } else if (filter !== 'ALL') {
+            stocks = stocks.filter(s => s.sector === filter);
+        }
+
+        if (stocks.length === 0) {
+            container.innerHTML = '<div class="screener-loading">No stocks match this filter.</div>';
+            return;
+        }
+
+        // Show top 3 banner if viewing all qualified
+        let html = '';
+        if ((filter === 'ALL' || filter === 'QUALIFIED') && screenerResults.top3Picks.length > 0) {
+            html += '<div style="margin-bottom:16px; padding:12px 16px; background:linear-gradient(135deg, rgba(245,158,11,0.1), rgba(99,102,241,0.05)); border:1px solid rgba(245,158,11,0.2); border-radius:var(--radius-md);">';
+            html += '<div style="font-size:12px; font-weight:700; color:var(--accent-amber); margin-bottom:8px;">🏆 TOP 3 HIGHEST CONVICTION PICKS</div>';
+            html += '<div style="display:flex; gap:12px; flex-wrap:wrap;">';
+            screenerResults.top3Picks.forEach((p, i) => {
+                html += `<div style="padding:6px 14px; background:var(--bg-glass); border:1px solid rgba(245,158,11,0.3); border-radius:20px; font-size:12px;">
+                    <span style="font-weight:700; color:var(--accent-amber);">#${i+1}</span>
+                    <span style="font-weight:600; color:var(--text-bright); margin:0 6px;">${p.name}</span>
+                    <span style="color:${p.finalScore.verdictColor}; font-weight:600;">${p.finalScore.total}/40</span>
+                </div>`;
+            });
+            html += '</div></div>';
+        }
+
+        html += '<div class="stock-cards-grid">';
+        stocks.slice(0, 20).forEach(s => {
+            html += renderStockCard(s);
+        });
+        html += '</div>';
+
+        container.innerHTML = html;
+    }
+
+    function renderStockCard(s) {
+        const isTopPick = screenerResults.top3Picks.some(t => t.key === s.key);
+        const isQualified = s.finalScore.qualified && s.fundamentalGate.qualified;
+        const cardClass = isTopPick ? 'stock-card top-pick-card' : isQualified ? 'stock-card qualified-card' : 'stock-card';
+
+        const inst = s.institutional;
+        const fiiTrendClass = inst.fiiTrend === 'increasing' ? 'trend-up' : inst.fiiTrend === 'decreasing' ? 'trend-down' : 'trend-flat';
+        const diiTrendClass = inst.diiTrend === 'increasing' ? 'trend-up' : inst.diiTrend === 'decreasing' ? 'trend-down' : 'trend-flat';
+
+        let html = `<div class="${cardClass}">`;
+        if (isTopPick) html += '<div style="position:absolute; top:8px; right:8px; font-size:16px;">🏆</div>';
+
+        // Header
+        html += `<div class="stock-card-header">
+            <div>
+                <div class="stock-name">${s.name}</div>
+                <span class="stock-sector-tag" style="background:${s.sectorColor}22; color:${s.sectorColor}; border:1px solid ${s.sectorColor}44;">${s.sectorName}</span>
+                ${s.hasLiveData ? '<span style="font-size:9px; color:var(--green-pos); margin-left:4px;">● LIVE</span>' : ''}
+            </div>
+            <div class="verdict-badge" style="background:${s.finalScore.verdictColor}22; color:${s.finalScore.verdictColor}; border:1px solid ${s.finalScore.verdictColor}44;">
+                ${s.finalScore.verdictEmoji} ${s.finalScore.verdict}
+            </div>
+        </div>`;
+
+        // Score row
+        const sc = s.finalScore;
+        html += `<div class="stock-scores-row">
+            <div class="score-mini"><div class="score-mini-label">Sector</div><div class="score-mini-value" style="color:${scoreMiniColor(sc.sectorScore)}">${sc.sectorScore}</div></div>
+            <div class="score-mini"><div class="score-mini-label">Fundamental</div><div class="score-mini-value" style="color:${scoreMiniColor(sc.fundamentalScore)}">${sc.fundamentalScore}</div></div>
+            <div class="score-mini"><div class="score-mini-label">Technical</div><div class="score-mini-value" style="color:${scoreMiniColor(sc.technicalScore)}">${sc.technicalScore}</div></div>
+            <div class="score-mini"><div class="score-mini-label">Risk-Reward</div><div class="score-mini-value" style="color:${scoreMiniColor(sc.riskScore)}">${sc.riskScore}</div></div>
+        </div>`;
+        html += `<div style="text-align:center; font-size:13px; margin-bottom:8px;">
+            <span style="font-weight:700; font-family:'JetBrains Mono',monospace; font-size:18px; color:${sc.verdictColor};">${sc.total}</span>
+            <span style="color:var(--text-muted);">/40</span>
+        </div>`;
+
+        // FII/DII
+        html += `<div class="stock-fii-dii">
+            <span class="fii-pill ${fiiTrendClass}">FII: ${inst.fiiHolding}% (${inst.fiiChange > 0 ? '+' : ''}${inst.fiiChange}%)</span>
+            <span class="dii-pill ${diiTrendClass}">DII: ${inst.diiHolding}% (${inst.diiChange > 0 ? '+' : ''}${inst.diiChange}%)</span>
+        </div>`;
+
+        // Fundamental gates (compact)
+        html += '<div class="stock-gates">';
+        for (const [key, gate] of Object.entries(s.fundamentalGate.gates)) {
+            const cls = gate.pass ? 'gate-pass' : 'gate-fail';
+            const icon = gate.pass ? '✓' : '✗';
+            html += `<span class="gate-pill ${cls}" title="${gate.label}: ${gate.value}">${icon} ${gate.label.split(' ')[0]}</span>`;
+        }
+        html += '</div>';
+
+        // Technical summary (if live data)
+        if (s.hasLiveData && s.technical.currentPrice > 0) {
+            const t = s.technical;
+            html += `<div class="stock-technicals">
+                <div class="tech-row"><span class="tech-label">Price</span><span class="tech-value">₹${t.currentPrice.toLocaleString()}</span></div>
+                <div class="tech-row"><span class="tech-label">RSI</span><span class="tech-value" style="color:${t.rsi > 70 ? 'var(--red-neg)' : t.rsi < 30 ? 'var(--green-pos)' : 'var(--text-secondary)'}">${t.rsi}</span></div>
+                <div class="tech-row"><span class="tech-label">Trend</span><span class="tech-value">${t.trend}</span></div>
+                <div class="tech-row"><span class="tech-label">Setup</span><span class="tech-value">${t.setup.type.replace(/_/g, ' ')}</span></div>
+                <div class="tech-row"><span class="tech-label">R:R</span><span class="tech-value" style="color:${s.riskReward.rrRatio >= 2 ? 'var(--green-pos)' : 'var(--accent-amber)'}">1:${s.riskReward.rrRatio}</span></div>
+            </div>`;
+
+            // Entry / SL / Target
+            html += `<div class="stock-entry-sl-target">
+                <div class="est-box est-entry"><div class="est-label">Entry</div><div class="est-value" style="color:var(--green-pos);">₹${t.entryRange.low}-${t.entryRange.high}</div></div>
+                <div class="est-box est-sl"><div class="est-label">Stop Loss</div><div class="est-value" style="color:var(--red-neg);">₹${t.stopLoss}</div></div>
+                <div class="est-box est-target"><div class="est-label">Target</div><div class="est-value" style="color:var(--accent-cyan);">₹${t.targets.t2}</div></div>
+            </div>`;
+        }
+
+        html += '</div>';
+        return html;
+    }
+
+    function scoreMiniColor(score) {
+        if (score >= 8) return 'var(--green-pos)';
+        if (score >= 6) return 'var(--accent-cyan)';
+        if (score >= 4) return 'var(--accent-amber)';
+        return 'var(--red-neg)';
+    }
+
+    function setupStockSectorTabs() {
+        const tabs = document.querySelectorAll('#stockSectorTabs .tab-btn');
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                tabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                renderStockPicks(tab.dataset.sector);
+            });
+        });
+    }
+
+    // ── Scoring Table ──
+    function renderScoringTable() {
+        if (!screenerResults) return;
+        const container = document.getElementById('scoringTableBody');
+        const table = screenerResults.scoringTable;
+
+        let html = '<div style="overflow-x:auto;"><table class="scoring-table">';
+        html += `<tr>
+            <th style="min-width:160px;">Stock</th><th>Sector</th>
+            <th>Sector /10</th><th>Fund /10</th><th>Tech /10</th><th>Risk /10</th>
+            <th style="min-width:80px;">Total /40</th><th>Verdict</th>
+        </tr>`;
+
+        table.forEach(row => {
+            const rowClass = row.qualified ? 'qualified-row' : 'rejected-row';
+            const totalColor = row.total >= 30 ? 'var(--green-pos)' : row.total >= 24 ? 'var(--accent-amber)' : 'var(--red-neg)';
+            html += `<tr class="${rowClass}" style="background:var(--bg-glass); border-radius:8px;">
+                <td style="font-weight:600;">${row.name}</td>
+                <td style="font-size:10px; color:var(--text-muted);">${row.sector}</td>
+                <td>${scoreCell(row.sectorScore, 10, 'var(--accent-indigo)')}</td>
+                <td>${scoreCell(row.fundamentalScore, 10, 'var(--accent-emerald)')}</td>
+                <td>${scoreCell(row.technicalScore, 10, 'var(--accent-cyan)')}</td>
+                <td>${scoreCell(row.riskScore, 10, 'var(--accent-amber)')}</td>
+                <td style="font-weight:700; font-size:16px; color:${totalColor}; font-family:'JetBrains Mono',monospace;">${row.total}</td>
+                <td><span class="verdict-badge" style="font-size:10px;">${row.verdictEmoji} ${row.verdict}</span></td>
+            </tr>`;
+        });
+
+        html += '</table></div>';
+        container.innerHTML = html;
+    }
+
+    function scoreCell(value, max, color) {
+        const pct = (value / max) * 100;
+        return `<span style="font-family:'JetBrains Mono',monospace; font-weight:600; font-size:12px;">${value}</span>
+            <div class="score-bar-cell"><div class="score-bar-fill" style="width:${pct}%; background:${color};"></div></div>`;
+    }
+
+    // ── Data Validation ──
+    function renderDataValidation() {
+        if (!screenerResults) return;
+        const container = document.getElementById('dataValidationBody');
+        const meta = screenerResults.dataValidation;
+
+        let html = '<div class="validation-grid">';
+
+        // Live data
+        html += `<div class="validation-section">
+            <div class="validation-title" style="color:var(--green-pos);">🟢 Live Data (Real-time)</div>`;
+        meta.liveData.forEach(item => {
+            html += `<div class="validation-item"><span style="color:var(--green-pos);">✓</span> ${item}</div>`;
+        });
+        html += '</div>';
+
+        // Curated data
+        html += `<div class="validation-section">
+            <div class="validation-title" style="color:var(--accent-amber);">📋 Pre-Curated Research</div>`;
+        meta.curatedData.forEach(item => {
+            html += `<div class="validation-item"><span style="color:var(--accent-amber);">◎</span> ${item}</div>`;
+        });
+        html += `<div class="validation-item" style="margin-top:8px; font-weight:600;">Last updated: ${meta.lastResearchUpdate}</div>`;
+        html += '</div>';
+
+        // Limitations
+        html += `<div class="validation-section" style="grid-column:1/-1;">
+            <div class="validation-title" style="color:var(--accent-orange);">⚠️ Known Limitations</div>`;
+        meta.limitations.forEach(lim => {
+            html += `<div class="validation-item"><span style="color:var(--accent-orange);">!</span> ${lim}</div>`;
+        });
+        html += '</div></div>';
+
+        container.innerHTML = html;
     }
 
 
